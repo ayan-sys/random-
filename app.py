@@ -3,6 +3,7 @@ import random
 import datetime
 import difflib
 import database
+import speech_recognition as sr
 
 # --- CONFIGURATION & DATA ---
 st.set_page_config(page_title="Star Barista ☕", page_icon="☕", layout="wide")
@@ -139,7 +140,28 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # 3. HANDLE USER INPUT
-if prompt := st.chat_input("Type here..."):
+# Create a container for input method selection or just show both
+input_container = st.container()
+
+voice_prompt = None
+audio_value = st.audio_input("🎤 Record your order")
+
+if audio_value:
+    r = sr.Recognizer()
+    try:
+        with sr.AudioFile(audio_value) as source:
+            audio_data = r.record(source)
+            voice_prompt = r.recognize_google(audio_data)
+            st.toast(f"I heard: '{voice_prompt}'", icon="👂")
+    except sr.UnknownValueError:
+        st.toast("Could not understand audio", icon="❌")
+    except sr.RequestError:
+        st.toast("Speech service unavailable", icon="⚠️")
+
+# Priority: Voice > Text
+prompt = voice_prompt if voice_prompt else st.chat_input("Type here...")
+
+if prompt:
     add_to_chat("user", prompt)
     with st.chat_message("user"):
         st.markdown(prompt)
