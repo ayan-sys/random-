@@ -4,6 +4,8 @@ import datetime
 import difflib
 import database
 import speech_recognition as sr
+from gtts import gTTS
+import io
 
 # --- CONFIGURATION & DATA ---
 st.set_page_config(page_title="Star Barista ☕", page_icon="☕", layout="wide")
@@ -259,4 +261,19 @@ if prompt:
     with st.chat_message("assistant"):
         st.markdown(response)
     add_to_chat("assistant", response)
-    st.rerun()
+    
+    # --- TEXT TO SPEECH (TTS) ---
+    try:
+        tts = gTTS(text=response, lang='en')
+        audio_bytes = io.BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
+        st.audio(audio_bytes, format='audio/mp3', autoplay=True)
+    except Exception as e:
+        # Fail silently on TTS errors to not break chat
+        print(f"TTS Error: {e}")
+
+    # Rerun to update state if needed, but wait for audio? 
+    # Streamlit rerun cuts off audio if immediate. 
+    # We will let the user interact again naturally.
+
