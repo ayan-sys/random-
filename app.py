@@ -123,9 +123,67 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
+# --- ADVANCED LOGIC ---
+KEYWORDS = {
+    "coffee": ["caffe americano", "iced coffee", "nitro cold brew"],
+    "latte": ["pumpkin spice latte", "iced chai latte"],
+    "tea": ["iced matcha lemonade", "iced chai latte"],
+    "food": ["butter croissant", "blueberry muffin", "cake pop"],
+    "sandwich": ["bacon & gouda sandwich", "impossible breakfast sandwich"]
+}
+
+SMALL_TALK = {
+    "how are you": "I'm just a few lines of code, but I'm feeling brew-tiful! ☕ How are you?",
+    "thank you": "You're welcome! It's my pleasure to serve. ✨",
+    "thanks": "No problem! Let me know if you need anything else.",
+    "hello": "Hi there! 👋 Ready for some coffee?",
+    "hi": "Hello! What can I get for you today?"
+}
+
+def analyze_intent(text):
+    text = text.lower()
+    
+    # 1. Direct Commands
+    if "menu" in text: return "menu"
+    if "cart" in text or "order" in text and "show" in text: return "show_cart"
+    if "checkout" in text or "pay" in text: return "checkout"
+    if "points" in text or "stars" in text: return "points"
+    if "surprise" in text or "recommend" in text: return "recommend"
+    
+    # 2. Small Talk
+    for key in SMALL_TALK:
+        if key in text:
+            return f"small_talk:{SMALL_TALK[key]}"
+            
+    # 3. FAQ
+    for key in FAQS:
+        if key in text:
+            return f"faq:{FAQS[key]}"
+            
+    # 4. Item Search (Keyword + Fuzzy)
+    # Check manual keywords first
+    for keyword, items in KEYWORDS.items():
+        if keyword in text:
+            return f"suggest:{items[0]}" # Suggest the first match
+            
+    # Fuzzy match strict items
+    match = find_item_fuzzy(text)
+    if match:
+        return f"add:{match['name']}"
+        
+    # Deep search (word by word)
+    words = text.split()
+    for word in words:
+        if len(word) > 3:
+            match = find_item_fuzzy(word)
+            if match:
+                return f"add:{match['name']}"
+                
+    return "unknown"
+
 # --- MAIN CHAT LOGIC ---
 st.title("☕ Star Barista AI")
-st.caption("Now with Memory & Smart Matching")
+st.caption("Now with specific Cart & Point commands!")
 
 # 1. INITIAL GREETING (Runs once)
 if not st.session_state.messages:
@@ -146,12 +204,10 @@ if prompt := st.chat_input("Type here..."):
 
     response = ""
     stage = st.session_state.current_stage
-    prompt_lower = prompt.lower()
-
-    # --- STAGE: GET NAME + DB CHECK ---
+    
+    # --- STAGE: GET NAME ---
     if stage == "get_name":
         st.session_state.user_name = prompt
-        # check DB
         user = database.get_user(prompt)
         last_order = database.get_last_order(prompt)
         
@@ -159,9 +215,8 @@ if prompt := st.chat_input("Type here..."):
             st.session_state.stars = user[1]
             response = f"Welcome back, **{prompt}**! 👋 You have **{user[1]} Stars**. ✨\n\n"
             if last_order:
-                # Suggest re-order
-                 last_item_name = last_order[0]['item']
-                 response += f"Want to order your usual **{last_item_name}** again?"
+                last_item_name = last_order[0]['item']
+                response += f"Want to order your usual **{last_item_name}** again?"
             else:
                  response += "What are you in the mood for today?"
         else:
@@ -170,69 +225,61 @@ if prompt := st.chat_input("Type here..."):
             response = f"Nice to meet you, {prompt}! I've signed you up for Star Rewards. You have 0 stars.\n\nWhat can I get started for you? (Menu, Hot, Iced, Food)"
         
         st.session_state.current_stage = "menu"
-
-    # --- STAGE: LOGIC ROUTER ---
-    elif stage == "checkout" or "pay" in prompt_lower or "checkout" in prompt_lower:
-        if not st.session_state.cart:
-            response = "Your cart is empty! Add something first. ☕"
-        else:
-            total = calculate_total()
-            stars_earned = int(total * 2)
-            
-            # Save to DB
-            database.add_order(st.session_state.user_name, st.session_state.cart, total)
-            database.update_stars(st.session_state.user_name, stars_earned)
-            
-            # Update session
-            st.session_state.stars += stars_earned
-            
-            response = f"Processing payment... Success! 🎉\n\nYou've earned **{stars_earned} Stars**! Current Balance: **{st.session_state.stars}**.\n\nCheck your *Order History* next time you visit!"
-            st.session_state.cart = []
-            st.session_state.current_stage = "menu"
-
-    elif "menu" in prompt_lower:
-        response = "### 📜 The Menu\n\n"
-        for cat, items in MENU.items():
-            response += f"**{cat}**\n" + "\n".join([f"- {k} (${v})" for k, v in items.items()]) + "\n\n"
-        response += "Just type the name of a drink (even nicely like 'I want a latte')!"
-
-    elif "surprise" in prompt_lower or "recommend" in prompt_lower:
-        rec = random.choice(list(ALL_ITEMS.values()))
-        response = f"✨ My AI taste-buds suggest a **{rec['name']}** (${rec['price']}). Shall I add it?"
-
-    elif "fact" in prompt_lower or "trivia" in prompt_lower:
-        response = f"🤓 {random.choice(TRIVIA)}"
-
-    # FAQ MATCHING
-    elif any(x in prompt_lower for x in FAQS):
-        for key in FAQS:
-            if key in prompt_lower:
-                response = f"ℹ️ {FAQS[key]}"
-                break
-
-    # SMART ORDERING (FUZZY MATCH)
+        
+    # --- STAGE: ACTIVE CHAT ---
     else:
-        # Check against all item names using fuzzy match
-        # Split prompt into words if it's a long sentence, or feed whole phrase
-        # We try to match content.
+        intent = analyze_intent(prompt)
         
-        # Simple heuristic: try to match the whole prompt or chunks?
-        # Let's try matching the whole prompt first against keys
-        match = find_item_fuzzy(prompt)
+        if intent == "menu":
+            response = "### 📜 The Menu\n\n"
+            for cat, items in MENU.items():
+                response += f"**{cat}**\n" + "\n".join([f"- {k} (${v})" for k, v in items.items()]) + "\n\n"
+            response += "Just type the name of a drink (e.g., 'Latte') to add it!"
+            
+        elif intent == "show_cart":
+            if st.session_state.cart:
+                cart_text = "\n".join([f"- {item['item']} (${item['price']:.2f})" for item in st.session_state.cart])
+                response = f"### 🛒 Your Cart\n{cart_text}\n\n**Total: ${calculate_total():.2f}**\nType `Checkout` to pay."
+            else:
+                response = "Your cart is empty! 🛒"
+                
+        elif intent == "points":
+            response = f"🌟 You have **{st.session_state.stars} Stars**.\nEarn 2 stars per $1 spent!"
+            
+        elif intent == "checkout":
+            if not st.session_state.cart:
+                response = "Your cart is empty! Add something first. ☕"
+            else:
+                total = calculate_total()
+                stars_earned = int(total * 2)
+                database.add_order(st.session_state.user_name, st.session_state.cart, total)
+                database.update_stars(st.session_state.user_name, stars_earned)
+                st.session_state.stars += stars_earned
+                response = f"Processing payment... Success! 🎉\n\nYou've earned **{stars_earned} Stars**! Current Balance: **{st.session_state.stars}**.\n\nCheck your *Order History* next time you visit!"
+                st.session_state.cart = []
         
-        # If no strict match, check if any word in prompt hits a keyword
-        if not match:
-            words = prompt.split()
-            for word in words:
-                if len(word) > 3: # skip small words
-                    match = find_item_fuzzy(word)
-                    if match: break
-        
-        if match:
-            st.session_state.cart.append({"item": match['name'], "price": match['price']})
-            response = f"Got it! Added **{match['name']}** to your cart. 🛒\n\nAnything else?"
+        elif intent == "recommend":
+            rec = random.choice(list(ALL_ITEMS.values()))
+            response = f"✨ User-Choice-O-Matic recommends: **{rec['name']}** (${rec['price']}). Shall I add it?"
+            
+        elif intent.startswith("small_talk:"):
+            response = intent.split(":", 1)[1]
+            
+        elif intent.startswith("faq:"):
+            response = f"ℹ️ {intent.split(':', 1)[1]}"
+            
+        elif intent.startswith("suggest:"):
+            suggestion = intent.split(":", 1)[1]
+            response = f"Did you mean **{suggestion}**? I can add that for you!"
+            
+        elif intent.startswith("add:"):
+            item_name = intent.split(":", 1)[1]
+            price = ALL_ITEMS[item_name.lower()]['price']
+            st.session_state.cart.append({"item": item_name, "price": price})
+            response = f"Got it! Added **{item_name}** to your cart. 🛒\n\nTotal: ${calculate_total():.2f}. Anything else?"
+            
         else:
-            response = "I didn't quite catch that. 🤔 Try checking the `Menu` or asking for `Hours`."
+            response = "I'm not sure what you mean. 🤔 Try checking the `Menu`, asking for `Points`, or tell me to `Show Cart`."
 
     with st.chat_message("assistant"):
         st.markdown(response)
