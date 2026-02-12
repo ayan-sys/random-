@@ -3,9 +3,6 @@ import random
 import datetime
 import difflib
 import database
-import speech_recognition as sr
-from gtts import gTTS
-import io
 
 # --- CONFIGURATION & DATA ---
 st.set_page_config(page_title="Star Barista ☕", page_icon="☕", layout="wide")
@@ -142,28 +139,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # 3. HANDLE USER INPUT
-# Create a container for input method selection or just show both
-input_container = st.container()
-
-voice_prompt = None
-audio_value = st.audio_input("🎤 Record your order")
-
-if audio_value:
-    r = sr.Recognizer()
-    try:
-        with sr.AudioFile(audio_value) as source:
-            audio_data = r.record(source)
-            voice_prompt = r.recognize_google(audio_data)
-            st.toast(f"I heard: '{voice_prompt}'", icon="👂")
-    except sr.UnknownValueError:
-        st.toast("Could not understand audio", icon="❌")
-    except sr.RequestError:
-        st.toast("Speech service unavailable", icon="⚠️")
-
-# Priority: Voice > Text
-prompt = voice_prompt if voice_prompt else st.chat_input("Type here...")
-
-if prompt:
+if prompt := st.chat_input("Type here..."):
     add_to_chat("user", prompt)
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -261,19 +237,5 @@ if prompt:
     with st.chat_message("assistant"):
         st.markdown(response)
     add_to_chat("assistant", response)
-    
-    # --- TEXT TO SPEECH (TTS) ---
-    try:
-        tts = gTTS(text=response, lang='en')
-        audio_bytes = io.BytesIO()
-        tts.write_to_fp(audio_bytes)
-        audio_bytes.seek(0)
-        st.audio(audio_bytes, format='audio/mp3', autoplay=True)
-    except Exception as e:
-        # Fail silently on TTS errors to not break chat
-        print(f"TTS Error: {e}")
-
-    # Rerun to update state if needed, but wait for audio? 
-    # Streamlit rerun cuts off audio if immediate. 
-    # We will let the user interact again naturally.
+    st.rerun()
 
